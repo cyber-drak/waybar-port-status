@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+import json, re, subprocess
+from pathlib import Path
+
+cfg = Path.home() / ".config/server-port-status/ssh"
+PROC = re.compile(r'"([^"]+)"')
+
+# Font Awesome 6 (solid)
+ICON_PORTS = "\uf1e6"   # plug
+ICON_SSH = "\uf084"     # key
+
+
+def table(title, headers, rows):
+    if not rows:
+        return f"{title}\n  (none)"
+    widths = [
+        max(len(h), *(len(str(r[i])) for r in rows))
+        for i, h in enumerate(headers)
+    ]
+    line = "  ".join(h.ljust(w) for h, w in zip(headers, widths))
+    sep = "  ".join("─" * w for w in widths)
+    body = ["  ".join(str(c).ljust(w) for c, w in zip(r, widths)) for r in rows]
+    return "\n".join([title, line, sep, *body])
+
+
+def parse_ports():
+    try:
+        out = subprocess.check_output(["ss", "-tlnp"], text=True, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        out = subprocess.check_output(["ss", "-tln"], text=True)
+
+    by_port = {}
+    for line in out.splitlines()[1:]:
+        if "LISTEN" not in line:
+            continue
+        parts = line.split(maxsplit=4)
+        if len(parts) < 4:
+            continue
+        addr = parts[3]
+        port_s = addr.rsplit(":", 1)[-1]
+        if not port_s.isdigit():
+            continue
+        port = int(port_s)
+        host = addr.rsplit(":", 1)[0].strip("[]")
+        m = PROC.search(line)
+        proc = m.group(1) if m else "-"
+        prev = by_port.get(port)
+        if prev is None or (prev[2] == "-" and proc != "-"):
+            by_port[port] = (port, host, proc)
+    return [by_port[p] for p in sorted(by_port)]
+
+
+def ssh_alive(pat):
+    if pat.isdigit():
+        r = subprocess.run(["ss", "-tlnH", f"sport = :{pat}"], capture_output=True, text=True)
+        return bool(r.stdout.strip())
+    r = subprocess.run(["pgrep", "-af", "ssh"], capture_output=True, text=True)
+    return pat in (r.stdout or "")
+
+
+ports = parse_ports()
+text = f"{ICON_PORTS} {len(ports)}"
+
+tip = "<span font_family='monospace' size='small'>\n"
+tip += table("OPEN PORTS", ("PORT", "BIND", "PROCESS"), ports)
+
+if cfg.exists():
+    ssh_rows = []
+    ok = total = 0
+    for line in cfg.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        name, _, pat = line.partition(":")
+        total += 1
+        up = ssh_alive(pat.strip())
+        ok += up
+        ssh_rows.append((name.strip(), "up" if up else "down"))
+    text += f"  {ICON_SSH} {ok}/{total}"
+    tip += "\n\n" + table("SSH TUNNELS", ("NAME", "STATUS"), ssh_rows)
+
+tip += "\n</span>"
+
+print(json.dumps({"text": text, "tooltip": tip}))
