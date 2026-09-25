@@ -59,7 +59,7 @@ def ssh_alive(pat):
 
 
 ports = parse_ports()
-text = f"{ICON_PORTS} {len(ports)}"
+text = f"{ICON_PORTS} PORTS"
 
 tip = "<span font_family='monospace' size='small'>\n"
 tip += table("OPEN PORTS", ("PORT", "BIND", "PROCESS"), ports)
@@ -75,7 +75,7 @@ if cfg.exists():
         up = ssh_alive(pat.strip())
         ok += up
         ssh_rows.append((name.strip(), "up" if up else "down"))
-    text += f"  {ICON_SSH} {ok}/{total}"
+#    text += f"  {ICON_SSH} {ok}/{total}"
     tip += "\n\n" + table("SSH TUNNELS", ("NAME", "STATUS"), ssh_rows)
 
 tip += "\n</span>"
